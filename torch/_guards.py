@@ -134,3 +134,15 @@ class Guard:
             None,
         ), "Guarded object must be identical, or None"
         self.obj_weakref = obj_weakref
+
+class GuardsContext:
+    dynamo_guards: Set[Guard]
+
+
+_CURRENT_TRACING_CONTEXT
+
+class TracingContext:
+    guards_context = GuardsContext()
+
+    
+
