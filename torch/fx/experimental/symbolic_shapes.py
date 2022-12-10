@@ -427,9 +427,17 @@ def _lru_cache(fn, maxsize=None):
 
 
 # This stub exists so we can easily add metadata to sympy symbols
-class Symbol(sympy.Symbol):
-    __slots__: List[str] = []
+# NB: This inherits from Dummy, not Symbol, because Symbols with the same
+# name get interned.  This is bad for us as we want the metadata (snames)
+# to vary across different invocations and not leak.
+class Symbol(sympy.Dummy):
+    __slots__: List[str] = ['snames']
+    snames: List[str]
 
+    def __new__(cls, *args, **kwargs):
+        self = super().__new__(cls, *args, **kwargs)
+        self.snames = []
+        return self
 
 class ShapeEnv(object):
     def __init__(self):
@@ -532,13 +540,16 @@ class ShapeEnv(object):
 
         # Create a duck sized int if necessary
         if val not in self.val_to_var:
-            sympy_expr = sympy.Symbol(f"s{len(self.var_to_val)}", positive=True, integer=True)
+            sympy_expr = Symbol(f"s{len(self.var_to_val)}", positive=True, integer=True)
             self.var_to_val[sympy_expr] = sympy.Integer(val)
             self.val_to_var[val] = sympy_expr
 
         # This implements duck-shaping: input sizes that match are assigned
         # the same symint
-        return self.duck_int(val)
+        r = self.duck_int(val)
+        if isinstance(r, Symbol):
+            r.snames.append(sname)
+        return r
 
     # Given a concrete integer value, return the duck sized symbol associated
     # with it; e.g., suppose we already have a tensor of size 3 in scope,
