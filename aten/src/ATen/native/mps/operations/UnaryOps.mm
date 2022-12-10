@@ -6,6 +6,7 @@
 #include <ATen/mps/MPSStream.h>
 #include <ATen/native/mps/OperationUtils.h>
 #include <ATen/native/mps/MPSGraphVenturaOps.h>
+#include <ATen/WrapDimUtils.h>
 #include <torch/library.h>
 
 namespace at {
@@ -269,22 +270,23 @@ TORCH_IMPL_FUNC(cumsum_out_mps)
  int64_t dim,
  c10::optional<ScalarType> dtype,
  const Tensor& result) {
-  TORCH_CHECK(dim >=0 && dim < std::max(1LL, self.ndimension()), "Expected dim to be between 0 and ", self.ndimension(), " but got ", dim);
+  auto dim_ = maybe_wrap_dim(dim, self.ndimension());
+  TORCH_CHECK(dim_ >=0 && dim_ < std::max(1LL, self.ndimension()), "Expected dim to be between 0 and ", self.ndimension(), " but got ", dim_);
   if (!is_macos_13_or_newer()) {
     TORCH_WARN_ONCE("torch.cumsum supported by MPS on MacOS 13+, please upgrade");
-    auto cpu_result = self.to(at::Device(kCPU)).cumsum(dim, dtype);
+    auto cpu_result = self.to(at::Device(kCPU)).cumsum(dim_, dtype);
     at::_copy_from_and_resize(cpu_result, result);
     return;
   }
   auto input = dtype.has_value() ? self.to(dtype.value()) : self;
-  mps::unary_op(input, result, "cumsum_out_mp" + std::to_string(dim),
+  mps::unary_op(input, result, "cumsum_out_mp" + std::to_string(dim_),
                 ^ MPSGraphTensor* (MPSGraph* mpsGraph, MPSGraphTensor* inputTensor) {
        // cumsum is horribly broken for int8, int16 and as chances for overflow is pretty high, cast to int32
        if (isIntegralType(input.scalar_type()) && input.scalar_type() !=ScalarType::Int) {
            inputTensor = mps::castMPSTensor(mpsGraph, inputTensor, result.scalar_type());
        }
        auto rc = [mpsGraph cumulativeSumWithTensor: inputTensor
-                                              axis: dim
+                                              axis: dim_
                                               name: nil];
        if (result.scalar_type()!= input.scalar_type() ||
            (isIntegralType(input.scalar_type()) && input.scalar_type() !=ScalarType::Int)) {
